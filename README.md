@@ -1,6 +1,6 @@
 # iamhc 自动签到脚本
 
-自动登录 [iamhc.cn](https://api.iamhc.cn)（基于 new-api）并执行每日签到，签到后通过 Telegram 推送通知。
+自动登录 [iamhc.cn](https://api.iamhc.cn)并执行每日签到，签到后通过 Telegram 推送通知(可选)。
 
 
 ### 配置 Secrets
