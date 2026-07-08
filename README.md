@@ -9,10 +9,10 @@
 
 | Secret 名称 | 说明 |
 |-------------|------|
-| `EMAIL` | 登录邮箱 |
-| `PASSWORD` | 登录密码 |
-| `TG_BOT_TOKEN` | Telegram Bot Token |
-| `TG_CHAT_ID` | Telegram Chat ID |
+| `EMAIL` | 登录邮箱(必填) |
+| `PASSWORD` | 登录密码(必填) |
+| `TG_BOT_TOKEN` | Telegram Bot Token(可选) |
+| `TG_CHAT_ID` | Telegram Chat ID(可选)  |
 
 ### 手动触发
 
