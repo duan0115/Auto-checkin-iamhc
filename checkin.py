@@ -10,7 +10,7 @@ PASSWORD      = os.environ.get("PASSWORD") or ""
 TG_CHAT_ID    = os.environ.get("TG_CHAT_ID") or ""
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN") or ""
 
-BASE_URL      = "https://api.iamhc.cn"
+BASE_URL      = "https://api.hcnsec.cn"
 QUOTA_PER_UNIT = 500000 # new-api 默认额度换算比例：500000 quota = 1$
 TURNSTILE_TOKEN = ""    # 该站点暂未开启 turuntile,暂时用不上此参数
 
