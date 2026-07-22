@@ -11,17 +11,17 @@ BASE_URL       = "https://api.hcnsec.cn"
 QUOTA_PER_UNIT = 500000  # new-api 默认额度换算比例：500000 quota = 1$
 TURNSTILE_TOKEN = ""     # 该站点暂未开启 turnstile，暂时用不上此参数
 
-# 多账号分隔符：账号之间用 "&" 分隔，账号与密码之间用 "----" 分隔
-# 例如：EMAIL=a@a.com----passwordA&b@b.com----passwordB
+# 多账号分隔符：账号之间用 "&" 分隔，账号与密码之间用 "," 分隔
+# 例如：EMAIL=a@a.com,passwordA&b@b.com,passwordB
 ACCOUNT_SEP  = "&"
-FIELD_SEP    = "----"
+FIELD_SEP    = ","
 
 
 def parse_accounts():
     """
     支持两种配置方式：
     1) 单个 EMAIL / PASSWORD 环境变量（向后兼容旧的单账号模式）
-    2) EMAIL 环境变量内直接写多组 "邮箱----密码"，用 "&" 分隔多个账号，
+    2) EMAIL 环境变量内直接写多组 "邮箱,密码"，用 "&" 分隔多个账号，
        此时可以不用设置 PASSWORD（也兼容同时设置的情况，PASSWORD 会被忽略）
 
     返回: [(email, password), ...]
@@ -32,7 +32,7 @@ def parse_accounts():
     accounts = []
 
     if FIELD_SEP in raw_email:
-        # 多账号模式：EMAIL 里包含 "邮箱----密码"
+        # 多账号模式：EMAIL 里包含 "邮箱,密码"
         for item in raw_email.split(ACCOUNT_SEP):
             item = item.strip()
             if not item:
