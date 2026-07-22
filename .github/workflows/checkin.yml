@@ -2,8 +2,8 @@ name: iamhc Daily Checkin
 
 on:
   schedule:
-    # 每天 UTC 23:00 运行（即北京时间次日 07:00）
-    - cron: '0 23 * * *'
+    # 每天 UTC 01:00 运行（即北京时间次日 09:00）
+    - cron: '0 01 * * *'
   workflow_dispatch: # 支持手动触发
 
 jobs:
@@ -26,6 +26,10 @@ jobs:
         run: pip install requests
 
       - name: Run checkin
+        # EMAIL 支持两种格式（在仓库 Settings -> Secrets 里配置 EMAIL 即可）：
+        #   单账号: a@a.com                       （同时需配置 PASSWORD secret）
+        #   多账号: a@a.com----passwordA&b@b.com----passwordB
+        #           （多账号模式下 PASSWORD secret 可以不填，会被忽略）
         env:
           EMAIL: ${{ secrets.EMAIL }}
           PASSWORD: ${{ secrets.PASSWORD }}
