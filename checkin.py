@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import os, sys, time, requests
 from urllib.parse import quote
 
@@ -233,8 +230,7 @@ def build_unified_message(results, now):
     lines.append("")
 
     for idx, r in enumerate(results, start=1):
-        masked = mask_email(r["email"])
-        lines.append(f"—— 账号 {idx}: {masked} ——")
+        lines.append(f"—— 账号 {idx}: {r['email']} ——")
         if r["status"] == "success":
             lines.append(f"✅ 签到成功，本次获得 {r['awarded']}$")
             lines.append(f"💰 昨日余额: {r['balance_before']}$ → 当前余额: {r['balance_after']}$")
