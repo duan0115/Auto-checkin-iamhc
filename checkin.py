@@ -49,6 +49,41 @@ def parse_accounts():
     return accounts
 
 
+def _extract_user_from_self(session: requests.Session):
+    """
+    用当前 session（登录接口返回的 Set-Cookie 已经保存在 session 里）
+    再请求一次 /api/user/self，尝试拿到用户 id / username。
+    有些站点登录接口的 data 字段不再直接返回完整用户对象（可能只是 true
+    或者精简结构），这时就需要靠 session cookie 再查一次。
+    """
+    url = f"{BASE_URL}/api/user/self"
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0",
+        "Referer": BASE_URL,
+    }
+    try:
+        resp = session.get(url, headers=headers, timeout=20)
+        data = resp.json()
+    except Exception as e:
+        print("兜底请求 /api/user/self 失败:", e)
+        return None
+
+    if not data.get("success"):
+        print("兜底请求 /api/user/self 未成功:", data.get("message", ""))
+        return None
+
+    info = data.get("data") or {}
+    if not isinstance(info, dict):
+        return None
+
+    user_id = info.get("id")
+    username = info.get("username", "")
+    if not user_id:
+        return None
+    return {"id": user_id, "username": username}
+
+
 def login(session: requests.Session, email, password):
     """登录并返回用户信息（id + username）。"""
     login_url = f"{BASE_URL}/api/user/login?turnstile={quote(TURNSTILE_TOKEN)}"
@@ -69,19 +104,38 @@ def login(session: requests.Session, email, password):
     )
 
     if resp.status_code != 200:
-        print("登录请求失败:", resp.status_code)
+        print("登录请求失败:", resp.status_code, resp.text[:500])
         return None
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception as e:
+        print("登录响应不是合法 JSON:", e, resp.text[:500])
+        return None
+
     if not data.get("success"):
         print("登录失败:", data.get("message", ""))
         return None
 
-    user_data = data.get("data", {})
-    user_id = user_data.get("id")
-    username = user_data.get("username", "")
+    user_data = data.get("data")
+    user_id = None
+    username = ""
+    if isinstance(user_data, dict):
+        user_id = user_data.get("id")
+        username = user_data.get("username", "")
+
     if not user_id:
-        print("登录成功但未获取到用户 ID")
+        # 登录接口 success=true，但 data 里没有直接带用户 id（可能站点把
+        # 登录响应精简了，只靠 Set-Cookie 维持会话）。用同一个 session
+        # 再查一次 /api/user/self 作为兜底。
+        print("登录响应里未直接返回用户 ID，尝试通过 /api/user/self 兜底获取…")
+        fallback = _extract_user_from_self(session)
+        if fallback:
+            user_id = fallback["id"]
+            username = fallback["username"]
+
+    if not user_id:
+        print("登录成功但未获取到用户 ID，原始响应:", data)
         return None
 
     print(f"✅ 登录成功 | 账户: {username} | ID: {user_id}")
@@ -276,7 +330,7 @@ def main():
     if not accounts:
         print("请设置 EMAIL / PASSWORD 环境变量。")
         print("单账号: EMAIL=a@a.com  PASSWORD=xxxx")
-        print("多账号: EMAIL=a@a.com----passwordA&b@b.com----passwordB")
+        print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
