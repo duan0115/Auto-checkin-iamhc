@@ -49,43 +49,19 @@ def parse_accounts():
     return accounts
 
 
-def _extract_user_from_self(session: requests.Session):
-    """
-    用当前 session（登录接口返回的 Set-Cookie 已经保存在 session 里）
-    再请求一次 /api/user/self，尝试拿到用户 id / username。
-    有些站点登录接口的 data 字段不再直接返回完整用户对象（可能只是 true
-    或者精简结构），这时就需要靠 session cookie 再查一次。
-    """
-    url = f"{BASE_URL}/api/user/self"
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "User-Agent": "Mozilla/5.0",
-        "Referer": BASE_URL,
-    }
-    try:
-        resp = session.get(url, headers=headers, timeout=20)
-        data = resp.json()
-    except Exception as e:
-        print("兜底请求 /api/user/self 失败:", e)
-        return None
-
-    if not data.get("success"):
-        print("兜底请求 /api/user/self 未成功:", data.get("message", ""))
-        return None
-
-    info = data.get("data") or {}
-    if not isinstance(info, dict):
-        return None
-
-    user_id = info.get("id")
-    username = info.get("username", "")
-    if not user_id:
-        return None
-    return {"id": user_id, "username": username}
-
-
 def login(session: requests.Session, email, password):
-    """登录并返回用户信息（id + username）。"""
+    """
+    登录，并换取真正可用的 access_token。
+
+    该站点的认证是两步流程：
+    1. POST /api/user/login 登录成功后，会种下一个 new_api_refresh cookie
+       （被服务器限定只在 /api/user/auth 路径下生效），登录响应里虽然带了
+       用户对象（嵌套在 data.user 里），但里面的 access_token 字段是被
+       打码成 "***" 的，不能直接用。
+    2. 用这个 refresh cookie 去调 POST /api/user/auth/refresh，才能换到
+       真正可用的 access_token，后续请求都要带上
+       Authorization: Bearer <access_token>。
+    """
     login_url = f"{BASE_URL}/api/user/login?turnstile={quote(TURNSTILE_TOKEN)}"
 
     headers = {
@@ -104,62 +80,33 @@ def login(session: requests.Session, email, password):
     )
 
     if resp.status_code != 200:
-        print("登录请求失败:", resp.status_code, resp.text[:500])
+        print("登录请求失败:", resp.status_code, resp.text[:300])
         return None
 
     try:
         data = resp.json()
     except Exception as e:
-        print("登录响应不是合法 JSON:", e, resp.text[:500])
+        print("登录响应不是合法 JSON:", e)
         return None
 
     if not data.get("success"):
         print("登录失败:", data.get("message", ""))
         return None
 
-    payload = data.get("data")
-    user_id = None
-    username = ""
-    if isinstance(payload, dict):
-        # 该站点登录响应把用户对象嵌套在 data.data.user 里面，
-        # 不是直接放在 data.data 下面，之前按 data.data.id 取一直是 None。
-        user_info = payload.get("user")
-        if isinstance(user_info, dict):
-            user_id = user_info.get("id")
-            username = user_info.get("username", "")
-        else:
-            # 兼容万一站点以后改回旧结构（直接把 id 放在 data.data 下）
-            user_id = payload.get("id")
-            username = payload.get("username", "")
+    payload = data.get("data") or {}
+    user_info = payload.get("user") if isinstance(payload, dict) else None
+    user_id = user_info.get("id") if isinstance(user_info, dict) else None
+    username = user_info.get("username", "") if isinstance(user_info, dict) else ""
 
     if not user_id:
-        # 仍然拿不到就再试一次 /api/user/self 兜底（大概率也会失败，
-        # 因为该站点的会话依赖登录时设置的 Cookie，而不是响应里那个
-        # 被打码成 "***" 的 access_token，但留着作为最后一道保险）。
-        print("登录响应里未解析到用户 ID，尝试通过 /api/user/self 兜底获取…")
-        fallback = _extract_user_from_self(session)
-        if fallback:
-            user_id = fallback["id"]
-            username = fallback["username"]
-
-    if not user_id:
-        print("登录成功但未获取到用户 ID，原始响应:", data)
+        print("登录成功但未解析到用户 ID，原始响应:", data)
         return None
 
-    print(f"✅ 登录成功 | 账户: {username} | ID: {user_id}")
-    print("登录响应 Set-Cookie 头:", resp.headers.get("Set-Cookie"))
-    print("session 当前 cookies:", session.cookies.get_dict())
     result = {"id": user_id, "username": username}
-    if isinstance(payload, dict) and isinstance(payload.get("user"), dict):
-        result["raw_user"] = payload["user"]
-    session_info = payload.get("session") if isinstance(payload, dict) else None
-    if isinstance(session_info, dict) and session_info.get("sid"):
-        result["sid"] = session_info["sid"]
-        print("登录响应里的 session.sid:", session_info["sid"])
+    if isinstance(user_info, dict):
+        result["raw_user"] = user_info
 
-    # new_api_refresh 这个 cookie 被服务器限定 Path=/api/user/auth，
-    # 是用来换取真正 access token 的“刷新令牌”。调用 refresh 接口换出
-    # 真正能用于 Authorization: Bearer 的 access_token。
+    # 换取真正可用的 access_token
     try:
         refresh_resp = session.post(f"{BASE_URL}/api/user/auth/refresh", headers={
             "Accept": "application/json, text/plain, */*",
@@ -172,14 +119,12 @@ def login(session: requests.Session, email, password):
             access_token = (refresh_data.get("data") or {}).get("access_token")
             if access_token:
                 result["access_token"] = access_token
-                print("✅ 已通过 /api/user/auth/refresh 换取到 access_token")
-            else:
-                print("refresh 接口返回成功但没有 access_token 字段:", refresh_data)
         else:
-            print(f"refresh 接口调用失败（状态码 {refresh_resp.status_code}）:", refresh_data)
+            print("获取 access_token 失败:", refresh_data.get("message", ""))
     except Exception as e:
-        print("调用 /api/user/auth/refresh 失败:", e)
+        print("换取 access_token 出错:", e)
 
+    print(f"✅ 登录成功 | 账户: {username} | ID: {user_id}")
     return result
 
 
@@ -200,11 +145,11 @@ def get_user_info(session: requests.Session, user_id, access_token=None):
     try:
         data = resp.json()
     except Exception as e:
-        print(f"获取用户信息响应不是合法 JSON（状态码 {resp.status_code}）:", e, resp.text[:500])
+        print(f"获取用户信息失败（状态码 {resp.status_code}）:", e)
         return None
     if data.get("success"):
         return data.get("data", {})
-    print(f"获取用户信息失败（状态码 {resp.status_code}）:", data.get("message", ""), "| 完整响应:", data)
+    print(f"获取用户信息失败（状态码 {resp.status_code}）:", data.get("message", ""))
     return None
 
 
@@ -225,13 +170,10 @@ def checkin(session: requests.Session, user_id, access_token=None):
 
     resp = session.post(url, headers=headers, json={}, timeout=20)
     try:
-        result = resp.json()
+        return resp.json()
     except Exception as e:
-        print(f"签到响应不是合法 JSON（状态码 {resp.status_code}）:", e, resp.text[:500])
+        print(f"签到响应解析失败（状态码 {resp.status_code}）:", e)
         return {"success": False, "message": f"响应解析失败: {e}"}
-    if not result.get("success"):
-        print(f"签到请求返回失败（状态码 {resp.status_code}）:", result)
-    return result
 
 
 def quota_to_dollar(quota):
@@ -396,7 +338,6 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
-    print("[checkin.py version: v7-bearer-token-auth]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
