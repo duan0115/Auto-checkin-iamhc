@@ -156,6 +156,20 @@ def login(session: requests.Session, email, password):
     if isinstance(session_info, dict) and session_info.get("sid"):
         result["sid"] = session_info["sid"]
         print("登录响应里的 session.sid:", session_info["sid"])
+
+    # new_api_refresh 这个 cookie 被服务器限定 Path=/api/user/auth，
+    # 说明它是用来换取真正 access token 的“刷新令牌”，得专门打这个
+    # 路径的接口才会带上它。探测一下这个接口返回什么。
+    try:
+        auth_resp = session.get(f"{BASE_URL}/api/user/auth", headers={
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": "Mozilla/5.0",
+            "Referer": BASE_URL,
+        }, timeout=20)
+        print(f"探测 /api/user/auth（状态码 {auth_resp.status_code}）:", auth_resp.text[:800])
+    except Exception as e:
+        print("探测 /api/user/auth 失败:", e)
+
     return result
 
 
@@ -367,7 +381,7 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
-    print("[checkin.py version: v5-cookie-diagnostics]")
+    print("[checkin.py version: v6-probe-auth-endpoint]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
