@@ -147,9 +147,15 @@ def login(session: requests.Session, email, password):
         return None
 
     print(f"✅ 登录成功 | 账户: {username} | ID: {user_id}")
+    print("登录响应 Set-Cookie 头:", resp.headers.get("Set-Cookie"))
+    print("session 当前 cookies:", session.cookies.get_dict())
     result = {"id": user_id, "username": username}
     if isinstance(payload, dict) and isinstance(payload.get("user"), dict):
         result["raw_user"] = payload["user"]
+    session_info = payload.get("session") if isinstance(payload, dict) else None
+    if isinstance(session_info, dict) and session_info.get("sid"):
+        result["sid"] = session_info["sid"]
+        print("登录响应里的 session.sid:", session_info["sid"])
     return result
 
 
@@ -191,10 +197,13 @@ def checkin(session: requests.Session, user_id):
 
     resp = session.post(url, headers=headers, json={}, timeout=20)
     try:
-        return resp.json()
+        result = resp.json()
     except Exception as e:
         print(f"签到响应不是合法 JSON（状态码 {resp.status_code}）:", e, resp.text[:500])
         return {"success": False, "message": f"响应解析失败: {e}"}
+    if not result.get("success"):
+        print(f"签到请求返回失败（状态码 {resp.status_code}）:", result)
+    return result
 
 
 def quota_to_dollar(quota):
@@ -358,7 +367,7 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
-    print("[checkin.py version: v4-skip-self-before-checkin]")
+    print("[checkin.py version: v5-cookie-diagnostics]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
