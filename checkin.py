@@ -117,18 +117,26 @@ def login(session: requests.Session, email, password):
         print("登录失败:", data.get("message", ""))
         return None
 
-    user_data = data.get("data")
+    payload = data.get("data")
     user_id = None
     username = ""
-    if isinstance(user_data, dict):
-        user_id = user_data.get("id")
-        username = user_data.get("username", "")
+    if isinstance(payload, dict):
+        # 该站点登录响应把用户对象嵌套在 data.data.user 里面，
+        # 不是直接放在 data.data 下面，之前按 data.data.id 取一直是 None。
+        user_info = payload.get("user")
+        if isinstance(user_info, dict):
+            user_id = user_info.get("id")
+            username = user_info.get("username", "")
+        else:
+            # 兼容万一站点以后改回旧结构（直接把 id 放在 data.data 下）
+            user_id = payload.get("id")
+            username = payload.get("username", "")
 
     if not user_id:
-        # 登录接口 success=true，但 data 里没有直接带用户 id（可能站点把
-        # 登录响应精简了，只靠 Set-Cookie 维持会话）。用同一个 session
-        # 再查一次 /api/user/self 作为兜底。
-        print("登录响应里未直接返回用户 ID，尝试通过 /api/user/self 兜底获取…")
+        # 仍然拿不到就再试一次 /api/user/self 兜底（大概率也会失败，
+        # 因为该站点的会话依赖登录时设置的 Cookie，而不是响应里那个
+        # 被打码成 "***" 的 access_token，但留着作为最后一道保险）。
+        print("登录响应里未解析到用户 ID，尝试通过 /api/user/self 兜底获取…")
         fallback = _extract_user_from_self(session)
         if fallback:
             user_id = fallback["id"]
@@ -333,6 +341,7 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
+    print("[checkin.py version: v3-nested-user-parsing]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
