@@ -147,7 +147,10 @@ def login(session: requests.Session, email, password):
         return None
 
     print(f"✅ 登录成功 | 账户: {username} | ID: {user_id}")
-    return {"id": user_id, "username": username}
+    result = {"id": user_id, "username": username}
+    if isinstance(payload, dict) and isinstance(payload.get("user"), dict):
+        result["raw_user"] = payload["user"]
+    return result
 
 
 def get_user_info(session: requests.Session, user_id):
@@ -162,9 +165,14 @@ def get_user_info(session: requests.Session, user_id):
     }
 
     resp = session.get(url, headers=headers, timeout=20)
-    data = resp.json()
+    try:
+        data = resp.json()
+    except Exception as e:
+        print(f"获取用户信息响应不是合法 JSON（状态码 {resp.status_code}）:", e, resp.text[:500])
+        return None
     if data.get("success"):
         return data.get("data", {})
+    print(f"获取用户信息失败（状态码 {resp.status_code}）:", data.get("message", ""), "| 完整响应:", data)
     return None
 
 
@@ -182,7 +190,11 @@ def checkin(session: requests.Session, user_id):
     }
 
     resp = session.post(url, headers=headers, json={}, timeout=20)
-    return resp.json()
+    try:
+        return resp.json()
+    except Exception as e:
+        print(f"签到响应不是合法 JSON（状态码 {resp.status_code}）:", e, resp.text[:500])
+        return {"success": False, "message": f"响应解析失败: {e}"}
 
 
 def quota_to_dollar(quota):
@@ -235,11 +247,16 @@ def process_account(email, password):
         username = user.get("username", str(user_id))
         result["username"] = username
 
-        info_before = get_user_info(session, user_id)
-        if not info_before:
-            result["message"] = "获取签到前用户信息失败"
-            return result
-        balance_before = quota_to_dollar(info_before.get("quota", 0))
+        raw_user = user.get("raw_user") or {}
+        if "quota" in raw_user:
+            # 登录响应里已经直接带了 quota，不用再额外请求一次 /api/user/self
+            balance_before = quota_to_dollar(raw_user.get("quota", 0))
+        else:
+            info_before = get_user_info(session, user_id)
+            if not info_before:
+                result["message"] = "获取签到前用户信息失败"
+                return result
+            balance_before = quota_to_dollar(info_before.get("quota", 0))
         result["balance_before"] = balance_before
 
         checkin_data = checkin(session, user_id)
@@ -341,7 +358,7 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
-    print("[checkin.py version: v3-nested-user-parsing]")
+    print("[checkin.py version: v4-skip-self-before-checkin]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
