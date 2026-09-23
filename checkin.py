@@ -158,22 +158,32 @@ def login(session: requests.Session, email, password):
         print("登录响应里的 session.sid:", session_info["sid"])
 
     # new_api_refresh 这个 cookie 被服务器限定 Path=/api/user/auth，
-    # 说明它是用来换取真正 access token 的“刷新令牌”，得专门打这个
-    # 路径的接口才会带上它。探测一下这个接口返回什么。
+    # 是用来换取真正 access token 的“刷新令牌”。调用 refresh 接口换出
+    # 真正能用于 Authorization: Bearer 的 access_token。
     try:
-        auth_resp = session.get(f"{BASE_URL}/api/user/auth", headers={
+        refresh_resp = session.post(f"{BASE_URL}/api/user/auth/refresh", headers={
             "Accept": "application/json, text/plain, */*",
             "User-Agent": "Mozilla/5.0",
+            "Origin": BASE_URL,
             "Referer": BASE_URL,
         }, timeout=20)
-        print(f"探测 /api/user/auth（状态码 {auth_resp.status_code}）:", auth_resp.text[:800])
+        refresh_data = refresh_resp.json()
+        if refresh_data.get("success"):
+            access_token = (refresh_data.get("data") or {}).get("access_token")
+            if access_token:
+                result["access_token"] = access_token
+                print("✅ 已通过 /api/user/auth/refresh 换取到 access_token")
+            else:
+                print("refresh 接口返回成功但没有 access_token 字段:", refresh_data)
+        else:
+            print(f"refresh 接口调用失败（状态码 {refresh_resp.status_code}）:", refresh_data)
     except Exception as e:
-        print("探测 /api/user/auth 失败:", e)
+        print("调用 /api/user/auth/refresh 失败:", e)
 
     return result
 
 
-def get_user_info(session: requests.Session, user_id):
+def get_user_info(session: requests.Session, user_id, access_token=None):
     """获取用户信息，返回 data 字典（包含 quota 等字段）。"""
     url = f"{BASE_URL}/api/user/self"
 
@@ -183,6 +193,8 @@ def get_user_info(session: requests.Session, user_id):
         "Referer": BASE_URL,
         "New-Api-User": str(user_id),
     }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
 
     resp = session.get(url, headers=headers, timeout=20)
     try:
@@ -196,7 +208,7 @@ def get_user_info(session: requests.Session, user_id):
     return None
 
 
-def checkin(session: requests.Session, user_id):
+def checkin(session: requests.Session, user_id, access_token=None):
     """执行签到，返回签到响应的完整 JSON。"""
     url = f"{BASE_URL}/api/user/checkin"
 
@@ -208,6 +220,8 @@ def checkin(session: requests.Session, user_id):
         "Referer": BASE_URL,
         "New-Api-User": str(user_id),
     }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
 
     resp = session.post(url, headers=headers, json={}, timeout=20)
     try:
@@ -269,22 +283,23 @@ def process_account(email, password):
         user_id = user["id"]
         username = user.get("username", str(user_id))
         result["username"] = username
+        access_token = user.get("access_token")
 
         raw_user = user.get("raw_user") or {}
         if "quota" in raw_user:
             # 登录响应里已经直接带了 quota，不用再额外请求一次 /api/user/self
             balance_before = quota_to_dollar(raw_user.get("quota", 0))
         else:
-            info_before = get_user_info(session, user_id)
+            info_before = get_user_info(session, user_id, access_token)
             if not info_before:
                 result["message"] = "获取签到前用户信息失败"
                 return result
             balance_before = quota_to_dollar(info_before.get("quota", 0))
         result["balance_before"] = balance_before
 
-        checkin_data = checkin(session, user_id)
+        checkin_data = checkin(session, user_id, access_token)
 
-        info_after = get_user_info(session, user_id)
+        info_after = get_user_info(session, user_id, access_token)
         if not info_after:
             result["message"] = "获取签到后用户信息失败"
             return result
@@ -381,7 +396,7 @@ def main():
         print("多账号: EMAIL=a@a.com,passwordA&b@b.com,passwordB")
         sys.exit(1)
 
-    print("[checkin.py version: v6-probe-auth-endpoint]")
+    print("[checkin.py version: v7-bearer-token-auth]")
     print(f"共检测到 {len(accounts)} 个账号，开始依次签到...\n")
 
     results = []
