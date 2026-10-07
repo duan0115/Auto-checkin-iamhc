@@ -34,7 +34,7 @@ jobs:
           PASSWORD: ${{ secrets.PASSWORD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: xvfb-run -a python checkin_browser.py
+        run: xvfb-run -a python checkin.py
 
       - name: clear old run jobs
         if: always()
